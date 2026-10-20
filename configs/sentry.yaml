@@ -79,6 +79,8 @@ ros2_gimbal:
   status_topic: "/serial/gimbal_status"
   cmd_topic: "/serial/process_gimbal"
   request_buff_topic: "/request_buff"
+  auto_aim_ignore_topic: "/request_auto_aim_ignore"
+  auto_aim_ignore_msg_type: "rm_interfaces/msg/RequestAutoAimIgnore"
   # [[deprecated(cyclonedds)]] typed messages no longer need type name strings
   # status_msg_type: "rm_interfaces/msg/Gimbal"
   # cmd_msg_type: "rm_interfaces/msg/GimbalCmd"

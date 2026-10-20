@@ -13,14 +13,11 @@
 #include <string>
 #include <thread>
 
-#include "io/cboard.hpp"
 #include "io/command.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/int32.hpp"
 #include "tools/math_tools.hpp"
 #include "tools/thread_safe_queue.hpp"
 
-// [[cyclonedds]] typed message headers (replaces manual Fast CDR serialization)
 #include "rm_interfaces/msg/gimbal.hpp"
 #include "rm_interfaces/msg/gimbal_cmd.hpp"
 
@@ -99,15 +96,12 @@ public:
 
   void send(const io::Command & command);
   void send(const io::Command & command, double big_yaw, double small_yaw);
-
-  // Inputs and ROS2 command fields use rad / rad/s / rad/s^2.
   void send_mpc(
     bool control, bool fire, double big_yaw, double small_yaw, double pitch, double yaw_vel,
     double pitch_vel, double yaw_acc, double pitch_acc, uint8_t armor_id = 0, double vx = 0.0,
     double vy = 0.0, double distance = 0.0);
 
   double bullet_speed() const;
-  Mode mode() const;
   ROS2GimbalState state() const;
 
 private:
@@ -123,17 +117,11 @@ private:
     std::string node_name = "nav_gimbal_bridge";
     std::string status_topic = "/serial/gimbal_status";
     std::string cmd_topic = "/serial/process_gimbal";
-    std::string request_buff_topic = "/request_buff";
-    // [[deprecated(cyclonedds)]] no longer needed with typed messages
-    // std::string status_msg_type;
-    // std::string cmd_msg_type;
   };
 
   BridgeConfig load_bridge_config(const std::string & config_path);
   void configure_topics();
-  // [[deprecated(cyclonedds)]] void status_callback(const std::shared_ptr<rclcpp::SerializedMessage> & message);
   void status_callback(const rm_interfaces::msg::Gimbal::SharedPtr msg);
-  void buff_request_callback(const std_msgs::msg::Int32::SharedPtr msg);
   bool prime_queue_if_ready();
   Eigen::Quaterniond latest_q() const;
   double latest_big_yaw() const;
@@ -141,13 +129,8 @@ private:
 
   tools::ThreadSafeQueue<IMUData> queue_{1000};
   std::shared_ptr<rclcpp::Node> node_;
-  // [[deprecated(cyclonedds)]] old generic publisher (required Fast CDR)
-  // std::shared_ptr<rclcpp::GenericPublisher> cmd_publisher_;
   std::shared_ptr<rclcpp::Publisher<rm_interfaces::msg::GimbalCmd>> cmd_publisher_;
-  // [[deprecated(cyclonedds)]] old generic subscription (required Fast CDR)
-  // std::shared_ptr<rclcpp::GenericSubscription> status_subscription_;
   std::shared_ptr<rclcpp::Subscription<rm_interfaces::msg::Gimbal>> status_subscription_;
-  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr buff_request_subscription_;
   std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
   std::thread spin_thread_;
 
@@ -162,7 +145,6 @@ private:
   IMUData data_behind_;
   Eigen::Quaterniond latest_q_{Eigen::Quaterniond::Identity()};
   bool has_prev_{false};
-  Mode mode_{Mode::auto_aim};
   double yaw_ = 0.0;
   double pitch_ = 0.0;
   double yaw_vel_ = 0.0;

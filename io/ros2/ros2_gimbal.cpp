@@ -148,9 +148,6 @@ ROS2Gimbal::BridgeConfig ROS2Gimbal::load_bridge_config(const std::string & conf
   if (bridge["node_name"]) config.node_name = bridge["node_name"].as<std::string>();
   if (bridge["status_topic"]) config.status_topic = bridge["status_topic"].as<std::string>();
   if (bridge["cmd_topic"]) config.cmd_topic = bridge["cmd_topic"].as<std::string>();
-  if (bridge["request_buff_topic"]) {
-    config.request_buff_topic = bridge["request_buff_topic"].as<std::string>();
-  }
 
   return config;
 }
@@ -166,12 +163,9 @@ void ROS2Gimbal::configure_topics()
       [this](const rm_interfaces::msg::Gimbal::SharedPtr msg) {
         this->status_callback(msg);
       });
-  buff_request_subscription_ = node_->create_subscription<std_msgs::msg::Int32>(
-    bridge_config_.request_buff_topic, 10,
-    [this](const std_msgs::msg::Int32::SharedPtr msg) { this->buff_request_callback(msg); });
   tools::logger()->info(
-    "[ROS2Gimbal] Typed pub/sub on '{}' and '{}', request_buff on '{}'.",
-    bridge_config_.cmd_topic, bridge_config_.status_topic, bridge_config_.request_buff_topic);
+    "[ROS2Gimbal] Typed pub/sub on '{}' and '{}'.",
+    bridge_config_.cmd_topic, bridge_config_.status_topic);
 }
 
 void ROS2Gimbal::status_callback(const rm_interfaces::msg::Gimbal::SharedPtr msg)
@@ -212,33 +206,6 @@ void ROS2Gimbal::status_callback(const rm_interfaces::msg::Gimbal::SharedPtr msg
   } catch (const std::exception & e) {
     tools::logger()->warn("[ROS2Gimbal] Failed to parse status message: {}", e.what());
   }
-}
-
-void ROS2Gimbal::buff_request_callback(const std_msgs::msg::Int32::SharedPtr msg)
-{
-  Mode mode = Mode::auto_aim;
-  switch (msg->data) {
-    case 0:
-      mode = Mode::auto_aim;
-      break;
-    case 1:
-      mode = Mode::small_buff;
-      break;
-    case 2:
-      mode = Mode::big_buff;
-      break;
-    default:
-      tools::logger()->warn("[ROS2Gimbal] ignore request_buff={}", msg->data);
-      return;
-  }
-
-  {
-    std::lock_guard<std::mutex> lk(mtx_);
-    if (mode_ == mode) return;
-    mode_ = mode;
-  }
-  tools::logger()->info(
-    "[ROS2Gimbal] request_buff={} mode={}", msg->data, MODES[static_cast<int>(mode)]);
 }
 
 bool ROS2Gimbal::prime_queue_if_ready()
@@ -352,12 +319,6 @@ double ROS2Gimbal::bullet_speed() const
 {
   std::lock_guard<std::mutex> lk(mtx_);
   return bullet_speed_;
-}
-
-Mode ROS2Gimbal::mode() const
-{
-  std::lock_guard<std::mutex> lk(mtx_);
-  return mode_;
 }
 
 ROS2GimbalState ROS2Gimbal::state() const

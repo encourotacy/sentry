@@ -11,6 +11,7 @@
 #include "io/camera.hpp"
 #include "io/usbcamera/usbcamera.hpp"
 #include "io/ros2/ros2_gimbal.hpp"
+#include "io/ros2/subscribe.hpp"
 
 #include "tasks/auto_aim/planner/planner.hpp"
 #include "tasks/auto_aim/solver.hpp"
@@ -37,16 +38,7 @@ namespace
 {
 const std::string keys =
   "{help h usage ? |                           | 输出命令行参数说明}"
-  "{@config-path   | configs/sentry.yaml    | 位置参数，yaml配置文件路径 }"
-  "{left           | __yaml__                | 左前相机设备名(相对/dev)，默认读yaml.omni_left_path }"
-  "{right          | __yaml__                | 右前相机设备名(相对/dev)，默认读yaml.omni_right_path }"
-  "{back           | __yaml__                | 正后相机设备名(相对/dev)，默认读yaml.omni_back_path }"
-  "{left_yaw       | 60                      | 左前相机中心yaw角(deg) }"
-  "{right_yaw      | -60                     | 右前相机中心yaw角(deg) }"
-  "{back_yaw       | 180                     | 正后相机中心yaw角(deg) }"
-  "{fov_h          | 120                     | USB相机水平视场角(deg) }"
-  "{fov_v          | 67                      | USB相机垂直视场角(deg) }"
-  "{no-display     |                         | 关闭画面显示 }";
+  "{@config-path   | configs/sentry.yaml    | 位置参数，yaml配置文件路径 }";
 
 double rad2deg(double rad) { return rad * 57.3; }
 
@@ -55,23 +47,24 @@ const char * energy_name(auto_buff::EnergyType energy_type)
   return energy_type == auto_buff::EnergyType::SMALL ? "small" : "big";
 }
 
-const char * mode_name(io::Mode mode)
+std::string board_index_string(int index)
+{
+  return index >= 0 ? fmt::format("#{}", index + 1) : "none";
+}
+
+const char * mode_name(io::ROS2Mode mode)
 {
   switch (mode) {
-    case io::Mode::small_buff:
+    case io::ROS2Mode::small_buff:
       return "small_buff";
-    case io::Mode::big_buff:
+    case io::ROS2Mode::big_buff:
       return "big_buff";
-    case io::Mode::auto_aim:
+    case io::ROS2Mode::auto_aim:
     default:
       return "auto_aim";
   }
 }
 
-std::string board_index_string(int index)
-{
-  return index >= 0 ? fmt::format("#{}", index + 1) : "none";
-}
 
 double unwrap_yaw(double yaw, double reference)
 {
@@ -88,6 +81,7 @@ bool unlocked_outpost(const auto_aim::Target & target)
 {
   return target.name == auto_aim::ArmorName::outpost && !target.outpost_layer_locked();
 }
+
 uint8_t armor_name_to_nav_id(auto_aim::ArmorName name)
 {
   switch (name) {
@@ -113,10 +107,11 @@ uint8_t armor_name_to_nav_id(auto_aim::ArmorName name)
 }
 
 void put_common_plot_data(
-  nlohmann::json & data, const io::ROS2Gimbal & gimbal, const io::Command & command, io::Mode mode)
+  nlohmann::json & data, const io::ROS2Gimbal & gimbal, const io::Command & command, io::ROS2Mode mode)
 {
   const auto gs = gimbal.state();
   data["gimbal_yaw"] = rad2deg(gs.yaw);
+  data["gimbal_big_yaw"] = rad2deg(gs.big_yaw);
   data["gimbal_pitch"] = rad2deg(gs.pitch);
   data["gimbal_yaw_vel"] = rad2deg(gs.yaw_vel);
   data["gimbal_pitch_vel"] = rad2deg(gs.pitch_vel);
@@ -127,11 +122,14 @@ void put_common_plot_data(
 }
 
 void draw_common_overlay(
-  cv::Mat & img, const io::ROS2Gimbal & gimbal, const io::Command & command, io::Mode mode)
+  cv::Mat & img, const io::ROS2Gimbal & gimbal, const io::Command & command, io::ROS2Mode mode)
 {
   const auto gs = gimbal.state();
   tools::draw_text(
-    img, fmt::format("Mode: {}", mode_name(mode)), {10, 30}, {255, 255, 255});
+    img, 
+    fmt::format(
+      "Mode: {}", mode_name(mode)), 
+      {10, 30}, {255, 255, 255});
   tools::draw_text(
     img,
     fmt::format(
@@ -141,8 +139,8 @@ void draw_common_overlay(
   tools::draw_text(
     img,
     fmt::format(
-      "Cmd: control={}, yaw={:.2f}, big_yaw={:.2f}, pitch={:.2f}, shoot={}", command.control,
-      rad2deg(command.yaw), rad2deg(command.big_yaw), rad2deg(command.pitch), command.shoot),
+      "Cmd: control={}, yaw={:.2f}, big_yaw={:.2f}, pitch={:.2f}, shoot={}", 
+      command.control, rad2deg(command.yaw), rad2deg(command.big_yaw), rad2deg(command.pitch), command.shoot),
     {10, 90}, command.control ? cv::Scalar(154, 50, 205) : cv::Scalar(120, 120, 120));
 }
 }  // namespace
@@ -152,11 +150,11 @@ int main(int argc, char * argv[])
   cv::CommandLineParser cli(argc, argv, keys); 
   auto config_path = cli.get<std::string>(0);
   if (cli.has("help") || config_path.empty()) {
-    cli.printMessage(); // 打印命令行参数说明
+    cli.printMessage();
     return 0;
   }
 
-  tools::logger()->info("[OVSentry MPC Debug] auto aim=mpc, buff aim=arm-only");
+  tools::logger()->info("[OVSentry MPC Debug] auto aim = mpc, buff aim = arm-only");
 
   tools::Exiter exiter;
   tools::Plotter plotter;
@@ -169,6 +167,11 @@ int main(int argc, char * argv[])
   auto_aim::Solver aim_solver(config_path); 
   auto_aim::Tracker tracker(config_path, aim_solver); 
   auto_aim::Planner planner(config_path); 
+
+  const auto nav_config = io::load_nav_subscribe_config(config_path);
+  io::ArmorIgnoreSubscriber armor_ignore(
+    nav_config.auto_aim_ignore_topic, nav_config.auto_aim_ignore_msg_type);
+  io::BuffRequestSubscriber buff_request(nav_config.request_buff_topic);
 
   auto_buff::Buff_Detector small_buff_detector(config_path, "small_buff_model");
   auto_buff::Buff_Detector big_buff_detector(config_path, "big_buff_model");
@@ -197,7 +200,7 @@ int main(int argc, char * argv[])
   cv::Mat img; 
   std::chrono::steady_clock::time_point timestamp; 
   int frame_count = 0;
-  auto last_mode = io::Mode::auto_aim; 
+  auto last_mode = io::ROS2Mode::auto_aim; 
 
   tools::logger()->info(
     "[OVSentry MPC Debug] started, timing offset={:.2f}ms", gimbal.offset_ms());
@@ -216,13 +219,12 @@ int main(int argc, char * argv[])
 
     frame_count++;
     const auto frame_start = std::chrono::steady_clock::now();
-    const auto mode = gimbal.mode();
-    // const auto mode = io::Mode::auto_aim;
-    // const auto mode = io::Mode::small_buff;
-    // const auto mode = io::Mode::big_buff;
+    const auto mode = buff_request.mode();
+    // const auto mode = io::ROS2Mode::auto_aim;
+    // const auto mode = io::ROS2Mode::small_buff;
+    // const auto mode = io::ROS2Mode::big_buff;
     if (mode != last_mode) {
-      tools::logger()->info(
-        "[OVSentry MPC Debug] switch mode={}", io::MODES[static_cast<int>(mode)]);
+      tools::logger()->info("[OVSentry MPC Debug] switch mode={}", mode_name(mode));
       last_mode = mode;
     }
 
@@ -237,15 +239,21 @@ int main(int argc, char * argv[])
     nlohmann::json data;
     data["frame_count"] = frame_count;
 
-    const bool buff_mode = mode == io::small_buff || mode == io::big_buff;
+    const bool buff_mode = mode == io::ROS2Mode::small_buff || mode == io::ROS2Mode::big_buff;
     if (!buff_mode) {
       const auto detect_start = std::chrono::steady_clock::now();
       auto armors = yolo.detect(img, frame_count);
       const auto detect_end = std::chrono::steady_clock::now();
 
+      const auto ignore = armor_ignore.ignored();
+      armors.remove_if([&](const auto_aim::Armor & armor) {
+        return ignore.contains(armor_name_to_nav_id(armor.name));
+      });
+
       const auto track_start = std::chrono::steady_clock::now();
       auto targets = tracker.track(armors, timestamp, true);
       const auto track_end = std::chrono::steady_clock::now();
+
       //=== planner & aimer start ===
       const auto aim_start = std::chrono::steady_clock::now();
       std::optional<auto_aim::Target> target_for_plan =
@@ -265,28 +273,27 @@ int main(int argc, char * argv[])
                     ? gimbal_state.big_yaw
                     : target_big_yaw(targets.front(), gimbal_state.big_yaw);
       }
+      // tools::logger()->debug("[OVSentry] armor_id = {}",armor_id);
 
       command.control = plan.control;
       command.shoot = plan.fire;
       command.yaw = small_yaw;
       command.pitch = plan.pitch;
       command.big_yaw = big_yaw;
-      command.small_yaw = small_yaw;
       command.has_target_yaw = plan.control;
       gimbal.send_mpc(
         plan.control, plan.fire, big_yaw, small_yaw, plan.pitch, plan.yaw_vel, plan.pitch_vel,
         plan.yaw_acc, plan.pitch_acc, armor_id);
 
-      data["plan_target_yaw"] = plan.target_yaw;
-      data["plan_target_pitch"] = plan.target_pitch;
+      data["plan_target_yaw"] = rad2deg(plan.target_yaw);
+      data["plan_target_pitch"] = rad2deg(plan.target_pitch);
       data["plan_yaw"] = rad2deg(plan.yaw);
+      data["plan_big_yaw"] = rad2deg(big_yaw);
       data["plan_pitch"] = rad2deg(plan.pitch);
       data["plan_yaw_vel"] = rad2deg(plan.yaw_vel);
       data["plan_pitch_vel"] = rad2deg(plan.pitch_vel);
       data["plan_yaw_acc"] = plan.yaw_acc;
       data["plan_pitch_acc"] = plan.pitch_acc;
-      data["cmd_big_yaw"] = rad2deg(big_yaw);
-      data["cmd_small_yaw"] = rad2deg(small_yaw);
       data["plan_fire"] = plan.fire ? 1 : 0;
 
       if (!armors.empty()) {
@@ -321,14 +328,14 @@ int main(int argc, char * argv[])
         data["w"] = x[7];
         data["r"] = x[8];
 
-        // tools::logger()->info("[OVGimbal Standard MPC Debug]rotation_vel={} , distance={}"
+        // tools::logger()->info("[OVSentry MPC Debug]rotation_vel={} , distance={}"
         //   , x[7], std::hypot(x[0], x[2]));
       }
 
       tools::draw_text(
         img, fmt::format("[{}]", tracker.state()), {10, 120}, {0, 255, 0});
     } else {
-      const auto energy_type = mode == io::small_buff ? auto_buff::EnergyType::SMALL
+      const auto energy_type = mode == io::ROS2Mode::small_buff ? auto_buff::EnergyType::SMALL
                                                       : auto_buff::EnergyType::BIG;
       configure_buff(energy_type);
       auto & active_buff_detector =

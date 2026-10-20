@@ -95,6 +95,7 @@ elseif(SENTRY_SPECIAL_MODE STREQUAL "ON")
     endif()
     add_library(io_ros2_gimbal STATIC
         ros2/ros2_gimbal.cpp
+        ros2/subscribe.cpp
     )
     ament_target_dependencies(io_ros2_gimbal rclcpp std_msgs)
     target_link_libraries(io_ros2_gimbal fastcdr)
@@ -105,6 +106,7 @@ else()
     else()
         add_library(io_ros2_gimbal STATIC
             ros2/ros2_gimbal.cpp
+            ros2/subscribe.cpp
         )
         ament_target_dependencies(io_ros2_gimbal rclcpp std_msgs)
         target_link_libraries(io_ros2_gimbal fastcdr)
