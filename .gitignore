@@ -1,0 +1,30 @@
+.vscode/
+.github/
+build/
+Camera/
+logs/
+assets/chessboard_calib/
+records/
+imgs/
+MvSdkLog/
+watchdog.sh
+
+
+# In-source CMake/CTest build artifacts
+/CMakeCache.txt
+/CMakeFiles/
+/CTestConfiguration.ini
+/CTestTestfile.cmake
+/cmake_install.cmake
+/Makefile
+/compile_commands.json
+/install_manifest.txt
+
+# Generated ament/CTest files
+/io/CTestCustom.cmake
+/io/ament_cmake_core/
+/io/ament_cmake_package_templates/
+/io/ament_cmake_uninstall_target/
+
+# Build error logs
+/kernel.errors.txt

@@ -1,0 +1,142 @@
+enemy_color: "red"
+# enemy_color: "blue"
+
+#####-----神经网络参数-----#####
+yolo_name: yolov5
+classify_model: assets/tiny_resnet.onnx
+yolo11_model_path: assets/yolo11.xml
+yolov8_model_path: assets/yolov8.xml
+yolov5_model_path: assets/yolov5_0526.xml
+device: GPU
+min_confidence: 0.8
+use_traditional: true
+
+#####-----ROI-----#####
+roi: 
+  x: 500
+  y: 400
+  width: 500
+  height: 500
+
+use_roi: false
+
+#####-----传统方法参数-----#####
+threshold: 150
+max_angle_error: 45 # degree
+min_lightbar_ratio: 1.5
+max_lightbar_ratio: 20
+min_lightbar_length: 8
+min_armor_ratio: 1
+max_armor_ratio: 5
+max_side_ratio: 1.5
+max_rectangular_error: 25 # degree
+min_confidence: 0.8
+
+#####-----tracker参数-----#####
+min_detect_count: 5
+max_temp_lost_count: 15
+outpost_max_temp_lost_count: 75
+
+#####-----aimer参数-----#####
+yaw_offset: 0.5 # degree
+pitch_offset: -1.25 # degree
+comming_angle: 60 # degree
+leaving_angle: 20 # degree
+decision_speed: 7 # rad/s
+high_speed_delay_time: 0.018 # s
+low_speed_delay_time: 0.007 # s
+
+#####-----shooter参数-----##### 
+auto_fire: true # 是否由自瞄控制射击
+
+first_tolerance: 3 # 近距离射击容差，degree
+second_tolerance: 2 # 远距离射击容差，degree
+judge_distance: 2 #距离判断阈值
+
+is_multiple_tolerance: false
+shooter_judge_distance: [2, 100] # degree
+shooter_tolerance: [3, 2] # degree
+
+high_spin_force_fire_enabled: false
+high_spin_force_fire_enter_speed: 16.0 # rad/s
+high_spin_force_fire_exit_speed: 12 # rad/s
+
+camera_name: "hikrobot"
+exposure_ms: 2
+gain: 16
+vid_pid: "2bdf:0001"
+
+R_gimbal2imubody: [1, 0, 0, 0, 1, 0,  0, 0, 1]
+
+# 重投影误差: 0.1518px
+camera_matrix: [1832.8602758694431, 0, 701.39622484661015, 0, 1832.6482783581985, 547.54933859701191, 0, 0, 1]
+distort_coeffs: [-0.079996953418961361, 0.21691498265352255, 0.00033047590085271322, -3.3486521212157653e-05, 0]
+
+#python3 euler_to_matrix.py --yaw 0.5 --pitch 1.2 --roll 0 --ascento
+# 相机同理想情况的偏角: yaw-3.98 pitch-1.79 roll2.74 degree
+R_camera2gimbal: [-0.0087265354983739347, 0.020941622460178961, 0.99974261488991811,
+ -0.99996192306417131, -0.00018275477053396661, -0.0087246216249317939,
+ -0, -0.9997806834748455, 0.020942419883356957]
+
+t_camera2gimbal: [0.041582222060970724, 0.0015049241221031079, 0.089682332868192272]
+
+#####-----时序参数-----#####
+timing:
+  offset: -0.001 # s, 串口姿态固定时间补偿
+
+#####-----cboard参数-----#####
+quaternion_canid: 0x100
+bullet_speed_canid: 0x101
+send_canid: 0xff
+can_interface: "can0"
+
+#####-----gimbal参数-----#####
+com_port: "/dev/gimbal"
+
+#####-----buff_detector参数-----#####
+model: "assets/yolo11_buff_int8.xml"
+small_buff_model: "assets/yolo11_buff_int8.xml"
+big_buff_model: "assets/yolo11-buff-nano-v1.xml"
+
+#####-----buff_aimer参数-----#####
+aim_mode: "arm" #arm / ring
+fire_gap_time: 0.80   # s
+predict_time: 0.100     # s
+
+#####-----planner-----#####
+is_multiple_thresh: true
+
+# low thresh version >>
+planner_judge_distance: [0.90, 1.50, 2.00, 2.55, 2.88, 3.50, 3.85, 4.20, 100] # degree
+planner_fire_thresh: [8.00, 3.50, 1.75, 0.66, 0.30, 0.20, 0.16, 0.10, 0.04] # degree
+
+# High thresh version >>
+# planner_judge_distance: [ 0.90, 1.55, 2.23, 2.63, 3.30, 3.70, 100] # degree
+# planner_fire_thresh : [8.00, 3.80, 1.74, 0.52, 0.36, 0.27, 0.1] # degre60 
+# 仿照(其实是抄doge)之前的距离容差设计，分距离使用不同的阈值。
+
+A_TOL: 0.060881
+B_TOL: 0.002313
+is_calculate_thresh: false 
+# 模型T(d)=A/d^2+B, 使非线性用最小二乘法算出。
+# is_multiple_thresh 会覆盖这个算出的阈值。
+# 数据获取方法：需要固定一个理想命中率，曲很多个距离，每个距离都不断尝试容差直至恰好到达命中率
+# 坏了，这个容差似乎还和转速有关。看来想要更准确地拟合还是很麻烦的
+
+high_spin_force_enabled_planner: true
+high_spin_force_enter_speed_planner: 13 # rad/s
+high_spin_force_exit_speed_planner: 11 # rad/s
+force_plus_low: 1.4 # 退出转速时的系数
+force_plus_high: 2 # 17 rad/s 时的系数
+# 高转速时，将阈值乘以一个系数，以防打不出子弹
+# 这个系数是根据转速线性增加的（即使超过17rad/s也是）
+
+fire_thresh: 0.0375 # 这是默认阈值
+
+max_yaw_acc: 30
+Q_yaw: [5e6,0] #[5e6,0]
+R_yaw: [1]
+
+max_pitch_acc: 50
+Q_pitch: [9e6, 0] #[9e6, 9e3]
+R_pitch: [1]
