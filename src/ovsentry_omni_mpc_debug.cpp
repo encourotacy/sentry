@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -9,7 +10,6 @@
 #include <string>
 
 #include "io/camera.hpp"
-#include "io/usbcamera/usbcamera.hpp"
 #include "io/ros2/ros2_gimbal.hpp"
 #include "io/ros2/subscribe.hpp"
 
@@ -24,7 +24,6 @@
 #include "tasks/auto_buff/buff_target.hpp"
 #include "tasks/auto_buff/buff_type.hpp"
 
-#include "tasks/omniperception/decider.hpp"
 #include "tasks/omniperception/ovsentry_omni_logic.hpp"
 
 #include "tools/exiter.hpp"
@@ -197,6 +196,9 @@ int main(int argc, char * argv[])
       "[OVSentry MPC Debug] switch buff energy={}", energy_name(energy_type)); 
   };
 
+  omniperception::OmniSearch omni(config_path);
+  bool prev_lost = false;
+
   cv::Mat img; 
   std::chrono::steady_clock::time_point timestamp; 
   int frame_count = 0;
@@ -254,94 +256,125 @@ int main(int argc, char * argv[])
       auto targets = tracker.track(armors, timestamp, true);
       const auto track_end = std::chrono::steady_clock::now();
 
-      //=== planner & aimer start ===
-      const auto aim_start = std::chrono::steady_clock::now();
-      std::optional<auto_aim::Target> target_for_plan =
-        targets.empty() ? std::nullopt : std::make_optional(targets.front());
-
-      auto plan = planner.plan(target_for_plan, gimbal.bullet_speed());
-      const auto aim_end = std::chrono::steady_clock::now();
-
-      uint8_t armor_id = 0;
-      double target_vx = 0.0;
-      double target_vy = 0.0;
-      double horizon_distance = 0.0;
+      // 进入或离开 lost 时清空本次全向搜索
+      const auto tracker_state = tracker.state();
       const auto gimbal_state = gimbal.state();
-      double big_yaw = plan.yaw;
-      double small_yaw = plan.yaw;
-      if (plan.control && !targets.empty()) {
-        const auto ekf_x = targets.front().ekf_x();
-        armor_id = armor_name_to_nav_id(targets.front().name);
-        target_vx = ekf_x[1];
-        target_vy = ekf_x[3];
-        horizon_distance = std::hypot(ekf_x[0], ekf_x[2]);
-        small_yaw = plan.yaw;
-        big_yaw = unlocked_outpost(targets.front())
-                    ? gimbal_state.big_yaw
-                    : target_big_yaw(targets.front(), gimbal_state.big_yaw);
-      }
-      // tools::logger()->debug("[OVSentry] armor_id = {}",armor_id);
+      const bool lost = tracker_state == "lost";
+      if (lost != prev_lost) omni.reset();
+      prev_lost = lost;
 
-      command.control = plan.control;
-      command.shoot = plan.fire;
-      command.yaw = small_yaw;
-      command.pitch = plan.pitch;
-      command.big_yaw = big_yaw;
-      command.has_target_yaw = plan.control;
-      gimbal.send_mpc(
-        plan.control, plan.fire, big_yaw, small_yaw, plan.pitch, plan.yaw_vel, plan.pitch_vel,
-        plan.yaw_acc, plan.pitch_acc, armor_id, target_vx, target_vy, horizon_distance);
+      if (lost) {
+        const auto steer = omni.update(
+          gimbal_state.big_yaw,
+          [&](std::chrono::steady_clock::time_point t) { return gimbal.big_yaw_at_image(t); },
+          [&](uint8_t id) { return ignore.contains(id); }, frame_count);
+        command.control = steer.control;
+        command.shoot = false;
+        command.yaw = steer.small_yaw;
+        command.big_yaw = steer.big_yaw;
+        command.pitch = steer.pitch;
+        command.has_target_yaw = steer.control;
+        gimbal.send_mpc(
+          steer.control, false, steer.big_yaw, steer.small_yaw, steer.pitch, 0, 0, 0, 0,
+          steer.armor_id, 0, 0, 0);
+      } else if (tracker_state == "detecting") {
+        command.control = true;
+        command.shoot = false;
+        command.yaw = gimbal_state.yaw;
+        command.big_yaw = gimbal_state.big_yaw;
+        command.pitch = -gimbal_state.pitch;
+        command.has_target_yaw = true;
+        gimbal.send_mpc(
+          true, false, gimbal_state.big_yaw, gimbal_state.yaw, -gimbal_state.pitch, 0, 0, 0, 0);
+      } else {
+        //=== planner & aimer start ===
+        const auto aim_start = std::chrono::steady_clock::now();
+        std::optional<auto_aim::Target> target_for_plan =
+          targets.empty() ? std::nullopt : std::make_optional(targets.front());
 
-      data["plan_target_yaw"] = rad2deg(plan.target_yaw);
-      data["plan_target_pitch"] = rad2deg(plan.target_pitch);
-      data["plan_yaw"] = rad2deg(plan.yaw);
-      data["plan_big_yaw"] = rad2deg(big_yaw);
-      data["plan_pitch"] = rad2deg(plan.pitch);
-      data["plan_yaw_vel"] = rad2deg(plan.yaw_vel);
-      data["plan_pitch_vel"] = rad2deg(plan.pitch_vel);
-      data["plan_yaw_acc"] = plan.yaw_acc;
-      data["plan_pitch_acc"] = plan.pitch_acc;
-      data["plan_fire"] = plan.fire ? 1 : 0;
+        auto plan = planner.plan(target_for_plan, gimbal.bullet_speed());
+        const auto aim_end = std::chrono::steady_clock::now();
 
-      if (!armors.empty()) {
-        auto & armor = armors.front();
-        aim_solver.solve(armor);
-        data["armor_x"] = armor.xyz_in_world[0];
-        data["armor_y"] = armor.xyz_in_world[1];
-        data["armor_z"] = armor.xyz_in_world[2] * 1000;
-        data["armor_yaw"] = rad2deg(armor.ypr_in_world[0]);
-        data["armor_pitch"] = rad2deg(armor.ypr_in_world[1]);
-        data["armor_yaw_raw"] = rad2deg(armor.yaw_raw);
-      }
-
-      if (!targets.empty()) {
-        auto target = targets.front();
-        for (const Eigen::Vector4d & xyza : target.armor_xyza_list()) {
-          auto image_points =
-            aim_solver.reproject_armor(xyza.head(3), xyza[3], target.armor_type, target.name);
-          tools::draw_points(img, image_points, {0, 255, 0});
-        };
-
-
-        if (plan.control) {
-          Eigen::Vector4d aim_xyza = planner.debug_xyza;
-          auto image_points = aim_solver.reproject_armor(
-            aim_xyza.head(3), aim_xyza[3], target.armor_type, target.name);
-          tools::draw_points(img, image_points, {0, 255, 255});
+        uint8_t armor_id = 0;
+        double target_vx = 0.0;
+        double target_vy = 0.0;
+        double horizon_distance = 0.0;
+        double big_yaw = plan.yaw;
+        double small_yaw = plan.yaw;
+        if (plan.control && !targets.empty()) {
+          const auto ekf_x = targets.front().ekf_x();
+          armor_id = armor_name_to_nav_id(targets.front().name);
+          target_vx = ekf_x[1];
+          target_vy = ekf_x[3];
+          horizon_distance = std::hypot(ekf_x[0], ekf_x[2]);
+          small_yaw = plan.yaw;
+          big_yaw = unlocked_outpost(targets.front())
+                      ? gimbal_state.big_yaw
+                      : target_big_yaw(targets.front(), gimbal_state.big_yaw);
         }
 
-        Eigen::VectorXd x = target.ekf_x();
-        data["z"] = x[4];
-        data["w"] = x[7];
-        data["r"] = x[8];
+        command.control = plan.control;
+        command.shoot = plan.fire;
+        command.yaw = small_yaw;
+        command.pitch = plan.pitch;
+        command.big_yaw = big_yaw;
+        command.has_target_yaw = plan.control;
+        gimbal.send_mpc(
+          plan.control, plan.fire, big_yaw, small_yaw, plan.pitch, plan.yaw_vel, plan.pitch_vel,
+          plan.yaw_acc, plan.pitch_acc, armor_id, target_vx, target_vy, horizon_distance);
 
-        // tools::logger()->info("[OVSentry MPC Debug]rotation_vel={} , distance={}"
-        //   , x[7], std::hypot(x[0], x[2]));
+        data["plan_target_yaw"] = rad2deg(plan.target_yaw);
+        data["plan_target_pitch"] = rad2deg(plan.target_pitch);
+        data["plan_yaw"] = rad2deg(plan.yaw);
+        data["plan_big_yaw"] = rad2deg(big_yaw);
+        data["plan_pitch"] = rad2deg(plan.pitch);
+        data["plan_yaw_vel"] = rad2deg(plan.yaw_vel);
+        data["plan_pitch_vel"] = rad2deg(plan.pitch_vel);
+        data["plan_yaw_acc"] = plan.yaw_acc;
+        data["plan_pitch_acc"] = plan.pitch_acc;
+        data["plan_fire"] = plan.fire ? 1 : 0;
+
+        if (!armors.empty()) {
+          auto & armor = armors.front();
+          aim_solver.solve(armor);
+          data["armor_x"] = armor.xyz_in_world[0];
+          data["armor_y"] = armor.xyz_in_world[1];
+          data["armor_z"] = armor.xyz_in_world[2] * 1000;
+          data["armor_yaw"] = rad2deg(armor.ypr_in_world[0]);
+          data["armor_pitch"] = rad2deg(armor.ypr_in_world[1]);
+          data["armor_yaw_raw"] = rad2deg(armor.yaw_raw);
+        }
+
+        if (!targets.empty()) {
+          auto target = targets.front();
+          for (const Eigen::Vector4d & xyza : target.armor_xyza_list()) {
+            auto image_points =
+              aim_solver.reproject_armor(xyza.head(3), xyza[3], target.armor_type, target.name);
+            tools::draw_points(img, image_points, {0, 255, 0});
+          }
+
+          if (plan.control) {
+            Eigen::Vector4d aim_xyza = planner.debug_xyza;
+            auto image_points = aim_solver.reproject_armor(
+              aim_xyza.head(3), aim_xyza[3], target.armor_type, target.name);
+            tools::draw_points(img, image_points, {0, 255, 255});
+          }
+
+          Eigen::VectorXd x = target.ekf_x();
+          data["z"] = x[4];
+          data["w"] = x[7];
+          data["r"] = x[8];
+          
+          // tools::logger()->info("[OVSentry MPC Debug]rotation_vel={} , distance={}"
+          //   , x[7], std::hypot(x[0], x[2]));
+        }
       }
 
       tools::draw_text(
-        img, fmt::format("[{}]", tracker.state()), {10, 120}, {0, 255, 0});
+        img, fmt::format("[{}]", tracker_state), {10, 120}, {0, 255, 0});
     } else {
+      if (prev_lost) omni.reset();
+      prev_lost = false;
       const auto energy_type = mode == io::ROS2Mode::small_buff ? auto_buff::EnergyType::SMALL
                                                       : auto_buff::EnergyType::BIG;
       configure_buff(energy_type);

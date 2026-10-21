@@ -33,6 +33,7 @@ add_subdirectory(tools)
 add_subdirectory(io)
 add_subdirectory(tasks/auto_aim)
 add_subdirectory(tasks/auto_buff)
+add_subdirectory(tasks/omniperception)
 
 ####################src###################
 file(GLOB OVGIMBAL_SOURCES CONFIGURE_DEPENDS src/ovgimbal*.cpp)
@@ -56,3 +57,11 @@ add_executable(auto_buff_test tests/auto_buff_test.cpp)
 
 target_link_libraries(auto_aim_test ${OpenCV_LIBS} fmt::fmt yaml-cpp tools io auto_aim)
 target_link_libraries(auto_buff_test ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_buff tools io)
+
+if(TARGET io_ros2_gimbal)
+    find_package(fastcdr REQUIRED)
+    add_executable(ovsentry_omni_mpc_debug src/ovsentry_omni_mpc_debug.cpp)
+    target_link_libraries(ovsentry_omni_mpc_debug ${OpenCV_LIBS} fmt::fmt yaml-cpp auto_aim auto_buff omniperception tools io io_ros2_gimbal fastcdr)
+else()
+    message(STATUS "io_ros2_gimbal target unavailable, skipping ovsentry_omni_mpc_debug.")
+endif()
