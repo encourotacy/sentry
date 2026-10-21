@@ -263,11 +263,18 @@ int main(int argc, char * argv[])
       const auto aim_end = std::chrono::steady_clock::now();
 
       uint8_t armor_id = 0;
+      double target_vx = 0.0;
+      double target_vy = 0.0;
+      double horizon_distance = 0.0;
       const auto gimbal_state = gimbal.state();
       double big_yaw = plan.yaw;
       double small_yaw = plan.yaw;
       if (plan.control && !targets.empty()) {
+        const auto ekf_x = targets.front().ekf_x();
         armor_id = armor_name_to_nav_id(targets.front().name);
+        target_vx = ekf_x[1];
+        target_vy = ekf_x[3];
+        horizon_distance = std::hypot(ekf_x[0], ekf_x[2]);
         small_yaw = plan.yaw;
         big_yaw = unlocked_outpost(targets.front())
                     ? gimbal_state.big_yaw
@@ -283,7 +290,7 @@ int main(int argc, char * argv[])
       command.has_target_yaw = plan.control;
       gimbal.send_mpc(
         plan.control, plan.fire, big_yaw, small_yaw, plan.pitch, plan.yaw_vel, plan.pitch_vel,
-        plan.yaw_acc, plan.pitch_acc, armor_id);
+        plan.yaw_acc, plan.pitch_acc, armor_id, target_vx, target_vy, horizon_distance);
 
       data["plan_target_yaw"] = rad2deg(plan.target_yaw);
       data["plan_target_pitch"] = rad2deg(plan.target_pitch);
