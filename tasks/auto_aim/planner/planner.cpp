@@ -280,7 +280,8 @@ double Planner::get_thresh(double distance, double angular_speed)
 
   if (high_spin_force_active_planner_) {
     double speed_range = 17 - high_spin_force_exit_speed_planner_;
-    if(speed_range <= 0) { // 通常不太会小于等于0，但是以防万一加一下
+    // exit_speed 低于 17 时才按转速把开火阈值从 force_plus_low 放到 force_plus_high
+    if (speed_range > 0) {
       double plus_k = (force_plus_high_ - force_plus_low_) / speed_range;
       final_fire_thresh *= (angular_speed - high_spin_force_exit_speed_planner_) * plus_k + force_plus_low_;
     }
