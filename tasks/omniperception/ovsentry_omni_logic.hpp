@@ -9,14 +9,13 @@
 #include <string>
 #include <vector>
 
-#include "detection.hpp"
+#include "decider.hpp"
 #include "io/usbcamera/usbcamera.hpp"
 #include "tasks/auto_aim/armor.hpp"
 #include "tasks/auto_aim/yolo.hpp"
 
 namespace omniperception
 {
-class Decider;
 
 struct OmniSteer
 {

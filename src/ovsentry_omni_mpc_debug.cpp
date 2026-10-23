@@ -256,7 +256,7 @@ int main(int argc, char * argv[])
       auto targets = tracker.track(armors, timestamp, true);
       const auto track_end = std::chrono::steady_clock::now();
 
-      // 进入或离开 lost 时清空本次全向搜索
+      // 全向感知初始化与重置
       const auto tracker_state = tracker.state();
       const auto gimbal_state = gimbal.state();
       const bool lost = tracker_state == "lost";

@@ -286,7 +286,7 @@ int main(int argc, char * argv[])
     auto armors = yolo_auto.detect(main_img, frame_count);
     auto t1 = std::chrono::steady_clock::now();
 
-    decider->armor_filter(armors);
+    decider->filter_enemy_color(armors);
     decider->set_priority(armors);
 
     auto targets = tracker.track(armors, main_timestamp);
@@ -342,11 +342,11 @@ int main(int argc, char * argv[])
       }
       auto t_omni3 = std::chrono::steady_clock::now();
 
-      decider->armor_filter(left_armors);
+      decider->filter_enemy_color(left_armors);
       decider->set_priority(left_armors);
-      decider->armor_filter(right_armors);
+      decider->filter_enemy_color(right_armors);
       decider->set_priority(right_armors);
-      decider->armor_filter(back_armors);
+      decider->filter_enemy_color(back_armors);
       decider->set_priority(back_armors);
 
       OmniInferenceResult left_result{left_cam_cfg, left_armors};

@@ -42,9 +42,9 @@ io::Command Decider::decide(
     cams[count_]->read(usb_img, timestamp);
   }
   auto armors = yolo.detect(usb_img);
-  auto empty = armor_filter(armors);
+  filter_enemy_color(armors);
 
-  if (!empty) {
+  if (!armors.empty()) {
     if (count_ == 2) {
       delta_angle = this->delta_angle(armors, "back");
     } else {
@@ -75,9 +75,9 @@ io::Command Decider::decide(
   std::chrono::steady_clock::time_point timestamp;
   back_cammera.read(img, timestamp);
   auto armors = yolo.detect(img);
-  auto empty = armor_filter(armors);
+  filter_enemy_color(armors);
 
-  if (!empty) {
+  if (!armors.empty()) {
     auto delta_angle = this->delta_angle(armors, "back");
     tools::logger()->debug(
       "[back camera] delta yaw:{:.2f},target pitch:{:.2f},armor number:{},armor name:{}",
@@ -129,27 +129,9 @@ Eigen::Vector2d Decider::delta_angle(
   }
 }
 
-bool Decider::armor_filter(std::list<auto_aim::Armor> & armors)
+void Decider::filter_enemy_color(std::list<auto_aim::Armor> & armors)
 {
-  if (armors.empty()) return true;
-  // 过滤非敌方装甲板
-  armors.remove_if([&](const auto_aim::Armor & a) { return a.color != enemy_color_; });
-
-  // 25赛季没有5号装甲板
-  armors.remove_if([&](const auto_aim::Armor & a) { return a.name == auto_aim::ArmorName::five; });
-  // 不打工程
-  // armors.remove_if([&](const auto_aim::Armor & a) { return a.name == auto_aim::ArmorName::two; });
-  // 不打前哨站
-  armors.remove_if(
-    [&](const auto_aim::Armor & a) { return a.name == auto_aim::ArmorName::outpost; });
-
-  // 过滤掉刚复活无敌的装甲板
-  armors.remove_if([&](const auto_aim::Armor & a) {
-    return std::find(invincible_armor_.begin(), invincible_armor_.end(), a.name) !=
-           invincible_armor_.end();
-  });
-
-  return armors.empty();
+  armors.remove_if([&](const auto_aim::Armor & armor) { return armor.color != enemy_color_; });
 }
 
 void Decider::set_priority(std::list<auto_aim::Armor> & armors)
@@ -169,9 +151,9 @@ void Decider::sort(std::vector<DetectionResult> & detection_queue)
 {
   if (detection_queue.empty()) return;
 
-  // 对每个 DetectionResult 调用 armor_filter 和 set_priority
+  // 对每个 DetectionResult 按敌方颜色过滤，并设置优先级
   for (auto & dr : detection_queue) {
-    armor_filter(dr.armors);
+    filter_enemy_color(dr.armors);
     set_priority(dr.armors);
 
     // 对每个 DetectionResult 中的 armors 进行排序

@@ -2,11 +2,12 @@
 #define OMNIPERCEPTION__DECIDER_HPP
 
 #include <Eigen/Dense>  // 必须在opencv2/core/eigen.hpp上面
+#include <chrono>
 #include <iostream>
 #include <list>
+#include <string>
 #include <unordered_map>
 
-#include "detection.hpp"
 #include "io/camera.hpp"
 #include "io/command.hpp"
 #include "io/usbcamera/usbcamera.hpp"
@@ -16,6 +17,45 @@
 
 namespace omniperception
 {
+enum class OmniCameraSlot
+{
+  unknown = 0,
+  left,
+  right,
+  back,
+  extra
+};
+
+struct CameraSpec
+{
+  OmniCameraSlot slot = OmniCameraSlot::unknown;
+  std::string label;
+  std::string dev_path;
+  double center_yaw_deg = 0.0;
+  double fov_h_deg = 0.0;
+  double fov_v_deg = 0.0;
+};
+
+//一个识别结果可能包含多个armor,需要排序和过滤。armors, timestamp, delta_yaw, delta_pitch
+struct DetectionResult
+{
+  std::list<auto_aim::Armor> armors;
+  std::chrono::steady_clock::time_point timestamp;
+  double delta_yaw;    //rad
+  double delta_pitch;  //rad
+
+  DetectionResult & operator=(const DetectionResult & other)
+  {
+    if (this != &other) {
+      armors = other.armors;
+      timestamp = other.timestamp;
+      delta_yaw = other.delta_yaw;
+      delta_pitch = other.delta_pitch;
+    }
+    return *this;
+  }
+};
+
 class Decider
 {
 public:
@@ -33,7 +73,7 @@ public:
   Eigen::Vector2d delta_angle(
     const std::list<auto_aim::Armor> & armors, const std::string & camera);
 
-  bool armor_filter(std::list<auto_aim::Armor> & armors);
+  void filter_enemy_color(std::list<auto_aim::Armor> & armors);
 
   void set_priority(std::list<auto_aim::Armor> & armors);
   //对队列中的每一个DetectionResult进行过滤，同时将DetectionResult排序

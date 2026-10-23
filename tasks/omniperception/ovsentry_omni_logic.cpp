@@ -128,7 +128,7 @@ OmniSteer OmniSearch::update(
     if (!cam.camera->read_with_timeout(img, ts, read_timeout_) || img.empty()) continue;
 
     auto armors = yolo_.detect(img, frame_count);
-    decider_->armor_filter(armors);
+    decider_->filter_enemy_color(armors);
     decider_->set_priority(armors);
     armors.remove_if([&](const auto_aim::Armor & armor) { return ignored(nav_id(armor.name)); });
     if (armors.empty()) continue;

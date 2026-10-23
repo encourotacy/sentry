@@ -76,7 +76,7 @@ int main(int argc, char * argv[])
 
     decider.get_invincible_armor(ros2.subscribe_enemy_status());
 
-    decider.armor_filter(armors);
+    decider.filter_enemy_color(armors);
 
     decider.get_auto_aim_target(armors, ros2.subscribe_autoaim_target());
 
