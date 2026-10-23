@@ -471,7 +471,7 @@ int main(int argc, char * argv[])
 
     draw_common_overlay(img, gimbal, command, mode);
     cv::resize(img, img, {}, 0.5, 0.5);
-    cv::imshow("OVGimbal Standard MPC Debug", img);
+    cv::imshow("OVSentry MPC Debug", img);
     auto key = cv::waitKey(1);
     if (key == 'q' || key == 'Q') break;
   }

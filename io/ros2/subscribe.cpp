@@ -195,14 +195,20 @@ NavSubscribeConfig load_nav_subscribe_config(const std::string & config_path)
   const auto bridge = yaml["ros2_gimbal"];
   if (!bridge) return config;
 
-  if (bridge["request_buff_topic"]) {
-    config.request_buff_topic = bridge["request_buff_topic"].as<std::string>();
+  const auto subscribe = bridge["subscribe"];
+  const auto pick = [&](const char * key) {
+    if (subscribe && subscribe[key]) return subscribe[key];
+    return bridge[key];
+  };
+
+  if (const auto topic = pick("request_buff_topic")) {
+    config.request_buff_topic = topic.as<std::string>();
   }
-  if (bridge["auto_aim_ignore_topic"]) {
-    config.auto_aim_ignore_topic = bridge["auto_aim_ignore_topic"].as<std::string>();
+  if (const auto topic = pick("auto_aim_ignore_topic")) {
+    config.auto_aim_ignore_topic = topic.as<std::string>();
   }
-  if (bridge["auto_aim_ignore_msg_type"]) {
-    config.auto_aim_ignore_msg_type = bridge["auto_aim_ignore_msg_type"].as<std::string>();
+  if (const auto msg_type = pick("auto_aim_ignore_msg_type")) {
+    config.auto_aim_ignore_msg_type = msg_type.as<std::string>();
   }
   return config;
 }

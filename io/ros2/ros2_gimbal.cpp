@@ -145,9 +145,17 @@ ROS2Gimbal::BridgeConfig ROS2Gimbal::load_bridge_config(const std::string & conf
   auto bridge = yaml["ros2_gimbal"];
   if (!bridge) return config;
 
+  const auto subscribe = bridge["subscribe"];
+  const auto publish = bridge["publish"];
+  const auto pick = [&](const YAML::Node & group, const char * key) {
+    if (group && group[key]) return group[key];
+    return bridge[key];
+  };
+
   if (bridge["node_name"]) config.node_name = bridge["node_name"].as<std::string>();
-  if (bridge["status_topic"]) config.status_topic = bridge["status_topic"].as<std::string>();
-  if (bridge["cmd_topic"]) config.cmd_topic = bridge["cmd_topic"].as<std::string>();
+  if (const auto topic = pick(subscribe, "status_topic"))
+    config.status_topic = topic.as<std::string>();
+  if (const auto topic = pick(publish, "cmd_topic")) config.cmd_topic = topic.as<std::string>();
 
   return config;
 }

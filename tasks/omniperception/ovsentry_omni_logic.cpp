@@ -77,15 +77,15 @@ OmniSearch::OmniSearch(const std::string & config_path)
 {
   const auto yaml = tools::load(config_path);
   fov_h_deg_ = yaml_double(yaml, "omni_fov_h_deg", 120);
-  min_delta_deg_ = yaml_double(yaml, "omni_retarget_min_delta_deg", 20);
-  release_deg_ = yaml_double(yaml, "omni_hold_release_tolerance_deg", 3);
-  timeout_floor_s_ = yaml_double(yaml, "omni_command_timeout_s", 0.5);
-  yaw_rate_deg_s_ = std::max(1.0, yaml_double(yaml, "omni_big_yaw_rate_deg_s", 90));
-  timeout_margin_s_ = yaml_double(yaml, "omni_command_timeout_margin_s", 0.4);
+  min_delta_deg_ = yaml_double(yaml, "omni_min_delta_deg", 20);
+  release_deg_ = yaml_double(yaml, "omni_release_deg", 3);
+  timeout_floor_s_ = yaml_double(yaml, "omni_timeout_s", 0.5);
+  yaw_rate_deg_s_ = std::max(1.0, yaml_double(yaml, "omni_yaw_rate_dps", 90));
+  timeout_margin_s_ = yaml_double(yaml, "omni_margin_s", 0.4);
   read_timeout_ = std::chrono::milliseconds(
     std::max(1, yaml["omni_camera_read_timeout_ms"] ? yaml["omni_camera_read_timeout_ms"].as<int>() : 10));
   cooldown_ = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-    std::chrono::duration<double>(yaml_double(yaml, "omni_retarget_cooldown_s", 2.5)));
+    std::chrono::duration<double>(yaml_double(yaml, "omni_cooldown_s", 2.5)));
 
   const double fov_v = yaml_double(yaml, "omni_fov_v_deg", 67);
   auto add = [&](OmniCameraSlot slot, const char * label, const char * path_key, const char * path_fallback,
