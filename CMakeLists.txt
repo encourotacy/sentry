@@ -19,7 +19,7 @@ include_directories(${EIGEN3_INCLUDE_DIR})
 include_directories(${OpenCV_INCLUDE_DIRS})
 include_directories(${PROJECT_SOURCE_DIR})
 
-set(SENTRY_SPECIAL_MODE "OFF" CACHE STRING "Build sentry-specific ROS2 gimbal and ovsentry targets: AUTO, ON, or OFF")
+set(SENTRY_SPECIAL_MODE "ON" CACHE STRING "Build sentry-specific ROS2 gimbal and ovsentry targets: AUTO, ON, or OFF")
 set_property(CACHE SENTRY_SPECIAL_MODE PROPERTY STRINGS AUTO ON OFF)
 string(TOUPPER "${SENTRY_SPECIAL_MODE}" SENTRY_SPECIAL_MODE)
 set(SENTRY_SPECIAL_MODE "${SENTRY_SPECIAL_MODE}" CACHE STRING "Build sentry-specific ROS2 gimbal and ovsentry targets: AUTO, ON, or OFF" FORCE)
