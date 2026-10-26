@@ -1,58 +1,97 @@
 #include <chrono>
+#include <cmath>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <opencv2/opencv.hpp>
 #include <string>
 
 #include "io/camera.hpp"
-#include "io/ovgimbal.hpp"
+#include "io/ros2/ros2_gimbal.hpp"
+#include "io/ros2/subscribe.hpp"
+
 #include "tasks/auto_aim/planner/planner.hpp"
-#include "tasks/auto_aim/aimer.hpp"
-#include "tasks/auto_aim/shooter.hpp"
 #include "tasks/auto_aim/solver.hpp"
 #include "tasks/auto_aim/tracker.hpp"
 #include "tasks/auto_aim/yolo.hpp"
+
 #include "tasks/auto_buff/buff_aimer.hpp"
 #include "tasks/auto_buff/buff_detector.hpp"
 #include "tasks/auto_buff/buff_solver.hpp"
 #include "tasks/auto_buff/buff_target.hpp"
 #include "tasks/auto_buff/buff_type.hpp"
+
+#include "tasks/omniperception/ovsentry_omni_logic.hpp"
+
 #include "tools/exiter.hpp"
 #include "tools/logger.hpp"
+#include "tools/math_tools.hpp"
 #include "tools/recorder.hpp"
 
 namespace
 {
 const std::string keys =
   "{help h usage ? |                           | 输出命令行参数说明}"
-  "{@config-path   | configs/standard4.yaml   | 位置参数，yaml配置文件路径 }";
+  "{@config-path   | configs/sentry.yaml    | 位置参数，yaml配置文件路径 }";
 
 const char * energy_name(auto_buff::EnergyType energy_type)
 {
   return energy_type == auto_buff::EnergyType::SMALL ? "small" : "big";
 }
+
+const char * mode_name(io::ROS2Mode mode)
+{
+  switch (mode) {
+    case io::ROS2Mode::small_buff:
+      return "small_buff";
+    case io::ROS2Mode::big_buff:
+      return "big_buff";
+    case io::ROS2Mode::auto_aim:
+    default:
+      return "auto_aim";
+  }
+}
+
+double unwrap_yaw(double yaw, double reference)
+{
+  return reference + tools::limit_rad(yaw - reference);
+}
+
+double target_big_yaw(const auto_aim::Target & target, double current_big_yaw)
+{
+  const auto & ekf_x = target.ekf_x();
+  return unwrap_yaw(std::atan2(ekf_x[2], ekf_x[0]), current_big_yaw);
+}
+
+bool unlocked_outpost(const auto_aim::Target & target)
+{
+  return target.name == auto_aim::ArmorName::outpost && !target.outpost_layer_locked();
+}
+
+uint8_t armor_name_to_nav_id(auto_aim::ArmorName name)
+{
+  switch (name) {
+    case auto_aim::ArmorName::one:
+      return 1;
+    case auto_aim::ArmorName::two:
+      return 2;
+    case auto_aim::ArmorName::three:
+      return 3;
+    case auto_aim::ArmorName::four:
+      return 4;
+    case auto_aim::ArmorName::five:
+      return 5;
+    case auto_aim::ArmorName::sentry:
+      return 6;
+    case auto_aim::ArmorName::outpost:
+      return 7;
+    case auto_aim::ArmorName::base:
+      return 8;
+    default:
+      return 0;
+  }
+}
 }  // namespace
-
-const std::unordered_map<int, auto_aim::ArmorName> num2armor_name = {
-  {1, auto_aim::ArmorName::one},
-  {2, auto_aim::ArmorName::two},
-  {3, auto_aim::ArmorName::three},
-  {4, auto_aim::ArmorName::four},
-  {5, auto_aim::ArmorName::sentry},
-  {6, auto_aim::ArmorName::outpost},
-  {7, auto_aim::ArmorName::base},
-  {0, auto_aim::ArmorName::not_armor}};
-
-const std::unordered_map<auto_aim::ArmorName, uint8_t> armor_name2num = {
-  {auto_aim::ArmorName::one, 1},
-  {auto_aim::ArmorName::two, 2},
-  {auto_aim::ArmorName::three, 3},
-  {auto_aim::ArmorName::four, 4},
-  {auto_aim::ArmorName::five, 0},
-  {auto_aim::ArmorName::sentry, 5},
-  {auto_aim::ArmorName::outpost, 6},
-  {auto_aim::ArmorName::base, 7},
-  {auto_aim::ArmorName::not_armor, 0}};
 
 int main(int argc, char * argv[])
 {
@@ -63,19 +102,23 @@ int main(int argc, char * argv[])
     return 0;
   }
 
-  tools::logger()->info("[OVGimbal Standard MPC] auto aim=mpc, buff aim=arm-only");
+  tools::logger()->info("[OVSentry MPC] auto aim = mpc, buff aim = arm-only");
+
   tools::Exiter exiter;
   tools::Recorder recorder;
 
-  io::OVGimbal gimbal(config_path);
+  io::ROS2Gimbal gimbal(config_path);
   io::Camera camera(config_path);
 
   auto_aim::YOLO yolo(config_path);
   auto_aim::Solver aim_solver(config_path);
   auto_aim::Tracker tracker(config_path, aim_solver);
-  // auto_aim::Aimer aimer(config_path);
-  // auto_aim::Shooter shooter(config_path);
   auto_aim::Planner planner(config_path);
+
+  const auto nav_config = io::load_nav_subscribe_config(config_path);
+  io::ArmorIgnoreSubscriber armor_ignore(
+    nav_config.auto_aim_ignore_topic, nav_config.auto_aim_ignore_msg_type);
+  io::BuffRequestSubscriber buff_request(nav_config.request_buff_topic);
 
   auto_buff::Buff_Detector small_buff_detector(config_path, "small_buff_model");
   auto_buff::Buff_Detector big_buff_detector(config_path, "big_buff_model");
@@ -85,6 +128,7 @@ int main(int argc, char * argv[])
   auto_buff::Aimer buff_aimer(config_path);
   auto_buff::DoubleBoardController double_board_controller;
 
+  // 将检测器和跟踪器配对
   small_buff_detector.setEnergyType(auto_buff::EnergyType::SMALL);
   small_buff_detector.setTarget(std::static_pointer_cast<auto_buff::Target>(small_target));
   big_buff_detector.setEnergyType(auto_buff::EnergyType::BIG);
@@ -95,16 +139,18 @@ int main(int argc, char * argv[])
     if (active_buff_energy.has_value() && active_buff_energy.value() == energy_type) return;
     active_buff_energy = energy_type;
     buff_solver.setEnergyType(energy_type);
-    tools::logger()->info("[OVGimbal Standard MPC] switch buff energy={}", energy_name(energy_type));
+    tools::logger()->info("[OVSentry MPC] switch buff energy={}", energy_name(energy_type));
   };
+
+  omniperception::OmniSearch omni(config_path);
+  bool prev_lost = false;
 
   cv::Mat img;
   std::chrono::steady_clock::time_point timestamp;
   int frame_count = 0;
-  auto last_mode = io::AutoAimMode::unknown;
+  auto last_mode = io::ROS2Mode::auto_aim;
 
-  tools::logger()->info(
-    "[OVGimbal Standard MPC] started, timing offset={:.2f}ms", gimbal.offset_ms());
+  tools::logger()->info("[OVSentry MPC] started, timing offset={:.2f}ms", gimbal.offset_ms());
 
   while (!exiter.exit()) {
     try {
@@ -119,61 +165,84 @@ int main(int argc, char * argv[])
     }
 
     frame_count++;
-    const auto mode = gimbal.autoaim_mode();
-    // const auto mode = io::AutoAimMode::big_energy;
-
+    omni.read_cameras();
+    const auto mode = buff_request.mode();
+    // const auto mode = io::ROS2Mode::auto_aim;
+    // const auto mode = io::ROS2Mode::small_buff;
+    // const auto mode = io::ROS2Mode::big_buff;
     if (mode != last_mode) {
-      tools::logger()->info(
-        "[OVGimbal Standard MPC] switch mode={} raw=0x{:02X}", gimbal.autoaim_mode_name(),
-        gimbal.raw_mode());
+      tools::logger()->info("[OVSentry MPC] switch mode={}", mode_name(mode));
       last_mode = mode;
     }
 
     const auto q = gimbal.imu_at_image(timestamp);
     aim_solver.set_R_gimbal2world(q);
     buff_solver.set_R_gimbal2world(q);
-    
-    recorder.record(img, q ,timestamp);
+    recorder.record(img, q, timestamp);
 
-    io::Command command{false, false, 0.0, 0.0};
-    io::Command last_command{false, false, 0.0, 0.0};
-
-    if (mode == io::AutoAimMode::normal || mode == io::AutoAimMode::anti_top
-         || mode == io::AutoAimMode::outpost) {
+    const bool buff_mode = mode == io::ROS2Mode::small_buff || mode == io::ROS2Mode::big_buff;
+    if (!buff_mode) {
       auto armors = yolo.detect(img, frame_count);
 
-      if (mode == io::AutoAimMode::outpost) // 前哨模式下只打前哨
-        armors.remove_if([&](const auto_aim::Armor & a) { return a.name != auto_aim::ArmorName::outpost; });
-      auto invincibility_num = gimbal.invincibility();
-      
-      for (int i = 0; i < 5; i ++) { // 过滤无敌单位的装甲板
-        if (invincibility_num % 2){
-          auto filterd_armor = num2armor_name.at(i+1);
-          armors.remove_if([&](const auto_aim::Armor & a) { return a.name == filterd_armor; });
-        }
-        invincibility_num = invincibility_num >> 1;
-      }
+      const auto ignore = armor_ignore.ignored();
+      armors.remove_if([&](const auto_aim::Armor & armor) {
+        return ignore.contains(armor_name_to_nav_id(armor.name));
+      });
 
       auto targets = tracker.track(armors, timestamp, true);
-      std::optional<auto_aim::Target> target_for_plan =
-        targets.empty() ? std::nullopt : std::make_optional(targets.front());
-      auto plan = planner.plan(target_for_plan, gimbal.bullet_speed());
-      plan.yaw *= 57.3;
-      plan.pitch *= 57.3;
-      plan.yaw_vel *= 57.3;
-      plan.yaw_acc *= 57.3;
-      plan.pitch_vel *= 57.3;
-      plan.pitch_acc *= 57.3;
 
-      uint8_t armor_id = 0;
-      if (!targets.empty()) armor_id = armor_name2num.at(targets.front().name);
+      // 全向感知初始化与重置
+      const auto tracker_state = tracker.state();
+      const auto gimbal_state = gimbal.state();
+      const bool lost = tracker_state == "lost";
+      if (lost != prev_lost) omni.reset();
+      prev_lost = lost;
 
-      gimbal.send(
-        plan.control, plan.fire, plan.yaw, plan.pitch, plan.yaw_vel, plan.yaw_acc, plan.pitch_vel,
-        plan.pitch_acc, armor_id);
-    } else if (mode == io::AutoAimMode::small_energy || mode == io::AutoAimMode::big_energy) {
-      const auto energy_type = mode == io::AutoAimMode::small_energy ? auto_buff::EnergyType::SMALL
-                                                                     : auto_buff::EnergyType::BIG;
+      if (lost) {
+        const auto steer = omni.update(
+          gimbal_state.big_yaw,
+          [&](std::chrono::steady_clock::time_point t) { return gimbal.big_yaw_at_image(t); },
+          [&](uint8_t id) { return ignore.contains(id); }, frame_count);
+        gimbal.send_mpc(
+          steer.control, false, steer.big_yaw, steer.small_yaw, steer.pitch, 0, 0, 0, 0,
+          steer.armor_id, 0, 0, 0);
+      } else if (tracker_state == "detecting") {
+        gimbal.send_mpc(
+          true, false, gimbal_state.big_yaw, gimbal_state.yaw, -gimbal_state.pitch, 0, 0, 0, 0);
+      } else {
+        //=== planner & aimer start ===
+        std::optional<auto_aim::Target> target_for_plan =
+          targets.empty() ? std::nullopt : std::make_optional(targets.front());
+
+        auto plan = planner.plan(target_for_plan, gimbal.bullet_speed());
+
+        uint8_t armor_id = 0;
+        double target_vx = 0.0;
+        double target_vy = 0.0;
+        double horizon_distance = 0.0;
+        double big_yaw = plan.yaw;
+        double small_yaw = plan.yaw;
+        if (plan.control && !targets.empty()) {
+          const auto ekf_x = targets.front().ekf_x();
+          armor_id = armor_name_to_nav_id(targets.front().name);
+          target_vx = ekf_x[1];
+          target_vy = ekf_x[3];
+          horizon_distance = std::hypot(ekf_x[0], ekf_x[2]);
+          small_yaw = plan.yaw;
+          big_yaw = unlocked_outpost(targets.front())
+                      ? gimbal_state.big_yaw
+                      : target_big_yaw(targets.front(), gimbal_state.big_yaw);
+        }
+
+        gimbal.send_mpc(
+          plan.control, plan.fire, big_yaw, small_yaw, plan.pitch, plan.yaw_vel, plan.pitch_vel,
+          plan.yaw_acc, plan.pitch_acc, armor_id, target_vx, target_vy, horizon_distance);
+      }
+    } else {
+      if (prev_lost) omni.reset();
+      prev_lost = false;
+      const auto energy_type = mode == io::ROS2Mode::small_buff ? auto_buff::EnergyType::SMALL
+                                                                : auto_buff::EnergyType::BIG;
       configure_buff(energy_type);
       auto & active_buff_detector =
         energy_type == auto_buff::EnergyType::SMALL ? small_buff_detector : big_buff_detector;
@@ -194,6 +263,7 @@ int main(int argc, char * argv[])
         buff_solver.solve(power_runes);
       }
 
+      io::Command command{false, false, 0.0, 0.0};
       if (energy_type == auto_buff::EnergyType::SMALL) {
         small_target->get_target(power_runes, timestamp, energy_type, nullptr);
         if (!small_target->is_unsolve()) {
@@ -207,7 +277,6 @@ int main(int argc, char * argv[])
           power_runes->isBoardLit(power_runes->selectedBoardIndex())) {
           tracking_power_runes = power_runes;
         }
-
         auto sin_param = buff_solver.getSinusoidalParam();
         big_target->get_target(tracking_power_runes, timestamp, energy_type, &sin_param);
         if (!big_target->is_unsolve()) {
@@ -216,18 +285,10 @@ int main(int argc, char * argv[])
         }
       }
 
-      gimbal.send(
-        command.control, command.shoot, static_cast<float>(command.yaw*57.3),
-        static_cast<float>(command.pitch*57.3), 0.0f, 0.0f, 0.0f, 0.0f);
-      last_command = command;
-      } else {
-      gimbal.send(
-        false, false, static_cast<float>(last_command.yaw*57.3),
-        static_cast<float>(last_command.pitch*57.3), 0.0f, 0.0f, 0.0f, 0.0f);
-      // gimbal.send(false, false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+      gimbal.send(command);
     }
   }
 
-  gimbal.send(false, false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+  gimbal.send_mpc(false, false, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
   return 0;
 }
