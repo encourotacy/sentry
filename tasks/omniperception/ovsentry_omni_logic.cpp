@@ -104,6 +104,25 @@ OmniSearch::OmniSearch(const std::string & config_path)
 
 OmniSearch::~OmniSearch() = default;
 
+void OmniSearch::read_cameras()
+{
+  for (auto & cam : cams_) {
+    cv::Mat img;
+    std::chrono::steady_clock::time_point timestamp;
+    if (!cam.camera->read_with_timeout(img, timestamp, read_timeout_) || img.empty()) continue;
+    cam.image = img.clone();
+    cam.image_ts = timestamp;
+  }
+}
+
+std::vector<OmniCameraFrame> OmniSearch::frames() const
+{
+  std::vector<OmniCameraFrame> frames;
+  frames.reserve(cams_.size());
+  for (const auto & cam : cams_) frames.push_back({cam.spec.label, cam.image});
+  return frames;
+}
+
 void OmniSearch::reset()
 {
   session_.reset();
@@ -123,11 +142,9 @@ OmniSteer OmniSearch::update(
 
   std::vector<Hit> hits;
   for (auto & cam : cams_) {
-    cv::Mat img;
-    std::chrono::steady_clock::time_point ts;
-    if (!cam.camera->read_with_timeout(img, ts, read_timeout_) || img.empty()) continue;
+    if (cam.image.empty()) continue;
 
-    auto armors = yolo_.detect(img, frame_count);
+    auto armors = yolo_.detect(cam.image, frame_count);
     decider_->filter_enemy_color(armors);
     decider_->set_priority(armors);
     armors.remove_if([&](const auto_aim::Armor & armor) { return ignored(nav_id(armor.name)); });
@@ -140,7 +157,7 @@ OmniSteer OmniSearch::update(
       });
     const double delta_yaw = cam.spec.center_yaw_deg + (0.5 - best->center_norm.x) * cam.spec.fov_h_deg;
     hits.push_back(Hit{
-      Lock{cam.spec.slot, best->name, big_yaw_at_image(ts) + delta_yaw / 57.3, nav_id(best->name)},
+      Lock{cam.spec.slot, best->name, big_yaw_at_image(cam.image_ts) + delta_yaw / 57.3, nav_id(best->name)},
       best->priority, best->confidence});
   }
 

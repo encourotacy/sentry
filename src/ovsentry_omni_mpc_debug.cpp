@@ -220,6 +220,7 @@ int main(int argc, char * argv[])
     }
 
     frame_count++;
+    omni.read_cameras();
     const auto frame_start = std::chrono::steady_clock::now();
     const auto mode = buff_request.mode();
     // const auto mode = io::ROS2Mode::auto_aim;
@@ -471,6 +472,12 @@ int main(int argc, char * argv[])
 
     draw_common_overlay(img, gimbal, command, mode);
     cv::resize(img, img, {}, 0.5, 0.5);
+    for (const auto & frame : omni.frames()) {
+      if (frame.image.empty()) continue;
+      cv::Mat shown;
+      cv::resize(frame.image, shown, {}, 0.5, 0.5);
+      cv::imshow(frame.name, shown);
+    }
     cv::imshow("OVSentry MPC Debug", img);
     auto key = cv::waitKey(1);
     if (key == 'q' || key == 'Q') break;

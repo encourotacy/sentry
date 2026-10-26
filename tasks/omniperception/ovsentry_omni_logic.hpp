@@ -26,6 +26,12 @@ struct OmniSteer
   uint8_t armor_id = 0;
 };
 
+struct OmniCameraFrame
+{
+  std::string name;
+  cv::Mat image;
+};
+
 // 只在主相机 lost 时调用。跟踪中不要用侧相机抢目标。
 class OmniSearch
 {
@@ -34,6 +40,8 @@ public:
   ~OmniSearch();
 
   void reset();
+  void read_cameras();
+  std::vector<OmniCameraFrame> frames() const;
 
   OmniSteer update(
     double current_big_yaw,
@@ -53,6 +61,8 @@ private:
   {
     CameraSpec spec;
     std::unique_ptr<io::USBCamera> camera;
+    cv::Mat image;
+    std::chrono::steady_clock::time_point image_ts{};
   };
 
   std::unique_ptr<Decider> decider_;
