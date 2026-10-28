@@ -300,6 +300,11 @@ double ROS2Gimbal::offset_ms() const
   return static_cast<double>(imu_query_offset_.count()) / 1000.0;
 }
 
+bool ROS2Gimbal::has_imu() const
+{
+  return has_latest_q_.load();
+}
+
 void ROS2Gimbal::send(const io::Command & command)
 {
   if (command.has_target_yaw) {

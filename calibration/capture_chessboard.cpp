@@ -7,7 +7,7 @@
 #include <opencv2/opencv.hpp>
 
 #include "io/camera.hpp"
-#include "io/ovgimbal.hpp"
+#include "io/ros2/ros2_gimbal.hpp"
 #include "tools/img_tools.hpp"
 #include "tools/logger.hpp"
 #include "tools/math_tools.hpp"
@@ -82,7 +82,7 @@ int main(int argc, char * argv[])
   const int detect_interval = yaml["detect_interval"].as<int>(2);
   const cv::Size pattern_size(pattern_cols, pattern_rows);
 
-  io::OVGimbal gimbal(config_path);
+  io::ROS2Gimbal gimbal(config_path);
   io::Camera camera(config_path);
   cv::Mat img;
   std::chrono::steady_clock::time_point timestamp;
@@ -115,7 +115,7 @@ int main(int argc, char * argv[])
     tools::draw_text(preview, fmt::format("Y {:.2f}", zyx[1]), {40, 80}, {0, 0, 255});
     tools::draw_text(preview, fmt::format("X {:.2f}", zyx[2]), {40, 120}, {0, 0, 255});
     tools::draw_text(
-      preview, imu_ready ? "IMU ready" : "IMU waiting", {40, 160},
+      preview, imu_ready ? "Nav IMU ready" : "Nav IMU waiting", {40, 160},
       imu_ready ? cv::Scalar(0, 180, 0) : cv::Scalar(0, 0, 255));
     tools::draw_text(
       preview, found ? "Chessboard found" : "Chessboard lost", {40, 200},
@@ -136,7 +136,7 @@ int main(int argc, char * argv[])
       continue;
     }
     if (!imu_ready) {
-      tools::logger()->warn("IMU 尚未就绪，忽略本次保存");
+      tools::logger()->warn("导航姿态尚未就绪，忽略本次保存");
       continue;
     }
 

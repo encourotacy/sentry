@@ -93,6 +93,7 @@ public:
   Eigen::Quaterniond imu_at_image(std::chrono::steady_clock::time_point image_timestamp);
   double big_yaw_at_image(std::chrono::steady_clock::time_point image_timestamp);
   double offset_ms() const;
+  bool has_imu() const;
 
   void send(const io::Command & command);
   void send(const io::Command & command, double big_yaw, double small_yaw);

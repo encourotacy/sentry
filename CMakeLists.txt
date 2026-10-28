@@ -63,6 +63,14 @@ foreach(CALIBRATION_SOURCE ${CALIBRATION_SOURCES})
     target_link_libraries(${CALIBRATION_TARGET} ${OpenCV_LIBS} fmt::fmt yaml-cpp tools io)
 endforeach()
 
+if(TARGET capture_chessboard)
+    if(TARGET io_ros2_gimbal)
+        target_link_libraries(capture_chessboard io_ros2_gimbal fastcdr)
+    else()
+        message(FATAL_ERROR "capture_chessboard reads quaternion from navigation and requires io_ros2_gimbal.")
+    endif()
+endif()
+
 ##################tests##################
 add_executable(auto_aim_test tests/auto_aim_test.cpp)
 add_executable(auto_buff_test tests/auto_buff_test.cpp)

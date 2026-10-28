@@ -14,6 +14,14 @@ vid_pid: "2bdf:0001"
 timing:
   offset: 0.002
 
+#####-----ROS2云台桥参数-----#####
+ros2_gimbal:
+  node_name: "capture_chessboard_nav"
+  subscribe:
+    status_topic: "/serial/gimbal_status" # 云台姿态
+  publish:
+    cmd_topic: "/serial/process_gimbal" # 云台控制
+
 # 重投影误差: 0.0913px
 camera_matrix: [1823.9963993419956, 0, 711.09463943585467, 0, 1826.2857680471473, 542.72405068229602, 0, 0, 1]
 distort_coeffs: [-0.084184390952579208, 0.22930994117456757, 1.0388259828447162e-05, 0.00079329515085383871, 0]
